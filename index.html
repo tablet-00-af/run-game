@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Run Game</title>
+</head>
+<body style="margin:0; overflow:hidden">
+
+<canvas id="game"></canvas>
+
+<script>
+const c = document.getElementById("game");
+const ctx = c.getContext("2d");
+
+function resize() {
+  c.width = window.innerWidth;
+  c.height = window.innerHeight;
+}
+resize();
+window.addEventListener("resize", resize);
+
+// ===== 状態 =====
+let started = false;
+let gameOver = false;
+let frame = 0;
+let score = 0;
+
+// ===== 定数 =====
+const GROUND_Y = 200;
+const BASE_SPEED = 10;
+const MAX_SPEED = 30;
+
+// ===== キャラ =====
+const dino = {
+  x: 60,
+  y: GROUND_Y - 20,
+  w: 20,
+  h: 20
+};
+
+// ===== 画像読み込み =====
+const dinoImg = {
+  wait: new Image(),
+  run1: new Image(),
+  run2: new Image(),
+  jump: new Image(),
+  dead: new Image()
+};
+
+dinoImg.wait.src = "wait.png";
+dinoImg.run1.src = "run1.png";
+dinoImg.run2.src = "run2.png";
+dinoImg.jump.src = "jump.png";
+dinoImg.dead.src = "dead.png";
+
+const cactusImgSmall = new Image();
+const cactusImgBig   = new Image();
+
+cactusImgSmall.src = "stone1.png";
+cactusImgBig.src   = "stone2.png";
+
+// ===== ジャンプ =====
+let jumping = false;
+let jumpT = 0;
+
+function jump() {
+  if (jumping || gameOver) return;
+  jumping = true;
+  jumpT = 0;
+}
+
+// ===== サボテン =====
+const cacti = [];
+let spawnTimer = 0;
+let nextSpawn = randomSpawnTime();
+
+function randomSpawnTime() {
+  return 25 + Math.random() * 20;
+}
+
+function spawnCactus() {
+  const size = 20 + Math.random() * 20;
+  cacti.push({
+    x: c.width,
+    y: GROUND_Y - size,
+    w: size,
+    h: size
+  });
+}
+
+// ===== 入力 =====
+window.addEventListener("click", () => {
+  if (gameOver) location.reload();
+  started = true;
+});
+
+window.addEventListener("keydown", e => {
+  if (!started) return;
+  if (e.key === " ") jump();
+});
+
+// ===== 当たり判定 =====
+function hit(a, b) {
+  return (
+    a.x < b.x + b.w &&
+    a.x + a.w > b.x &&
+    a.y < b.y + b.h &&
+    a.y + a.h > b.y
+  );
+}
+
+// ===== プレイヤー描画 =====
+
+function drawDino() {
+  let img = dinoImg.wait;
+
+  if (gameOver) {
+    img = dinoImg.dead;
+  } else if (jumping) {   // ← isJumping じゃない
+    img = dinoImg.jump;
+  } else if (!jumping && !gameOver && started) {
+    img = frame % 20 < 10 ? dinoImg.run1 : dinoImg.run2;
+  }
+
+  ctx.drawImage(img, dino.x, dino.y, dino.w, dino.h);
+}
+
+// ===== メインループ =====
+function update() {
+  ctx.clearRect(0, 0, c.width, c.height);
+
+  // スタート前
+  if (!started) {
+    ctx.font = "20px sans-serif";
+    ctx.textAlign = "center";
+    if (Math.floor(Date.now() / 500) % 2 === 0) {
+      ctx.fillText("クリックしてスタート", c.width / 2, c.height / 2);
+    }
+  }
+
+  // 地面
+  ctx.beginPath();
+  ctx.moveTo(0, GROUND_Y);
+  ctx.lineTo(c.width, GROUND_Y);
+  ctx.stroke();
+
+  // ===== ゲーム中処理 =====
+  let speed = BASE_SPEED;
+
+  if (started && !gameOver) {
+    frame++;
+
+    // スコア（1秒に1）
+    if (frame % 60 === 0) score++;
+
+    // ★ スコア連動スピード
+    speed = Math.min(
+      BASE_SPEED + score * 0.01,
+      MAX_SPEED
+    );
+
+    // ジャンプ
+    if (jumping) {
+      jumpT += 0.05;
+      const h = Math.sin(jumpT * Math.PI) * 70;
+      dino.y = GROUND_Y - dino.h - h;
+
+      if (jumpT >= 1) {
+        jumping = false;
+        dino.y = GROUND_Y - dino.h;
+      }
+    }
+
+    // サボテン生成
+    spawnTimer++;
+    if (spawnTimer > nextSpawn) {
+      spawnCactus();
+      spawnTimer = 0;
+      nextSpawn = randomSpawnTime();
+    }
+
+    // サボテン更新
+    for (let i = cacti.length - 1; i >= 0; i--) {
+      const ca = cacti[i];
+      ca.x -= speed;
+
+      if (hit(dino, ca)) {
+        gameOver = true;
+      }
+
+      if (ca.x + ca.w < 0) {
+        cacti.splice(i, 1);
+      }
+    }
+  }
+
+  // ===== 描画 =====
+  drawDino();
+
+  cacti.forEach(ca => {
+    const img = ca.h > 30 ? cactusImgBig : cactusImgSmall;
+    ctx.drawImage(img, ca.x, ca.y, ca.w, ca.h);
+  });
+
+  ctx.fillStyle = "red";
+  cacti.forEach(ca => {
+    ctx.strokeRect(ca.x, ca.y, ca.w, ca.h);
+  });
+
+  ctx.fillStyle = "black";
+  ctx.textAlign = "left";
+  ctx.fillText("Score: " + score, 10, 20);
+
+  if (gameOver) {
+    ctx.font = "30px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("GAME OVER", c.width / 2, c.height / 2);
+    ctx.font = "16px sans-serif";
+    ctx.fillText("クリックでリスタート", c.width / 2, c.height / 2 + 30);
+  }
+
+  requestAnimationFrame(update);
+}
+
+update();
+</script>
+
+</body>
+</html>
